@@ -768,19 +768,12 @@
                 console.log('Webhook URL:', webhookUrl);
                 console.log('Message:', slackMessage);
 
-                const response = await fetch(gasUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        webhookUrl: webhookUrl,
-                        message: slackMessage
-                    })
+                // JSONP 방식으로 CORS 우회
+                const result = await sendJsonpRequest(gasUrl, {
+                    webhookUrl: webhookUrl,
+                    message: slackMessage
                 });
 
-                console.log('Response status:', response.status);
-                const result = await response.json();
                 console.log('Response data:', result);
 
                 if (result.success) {
@@ -806,6 +799,46 @@
                 `;
                 resultCard.appendChild(slackError);
             }
+        }
+
+        // JSONP 방식으로 요청 보내기 (CORS 우회)
+        function sendJsonpRequest(url, data) {
+            return new Promise((resolve, reject) => {
+                const callbackName = 'jsonp_callback_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                
+                // 글로벌 콜백 함수 생성
+                window[callbackName] = function(response) {
+                    delete window[callbackName];
+                    document.body.removeChild(script);
+                    resolve(response);
+                };
+                
+                // 데이터를 URL 파라미터로 인코딩
+                const params = new URLSearchParams({
+                    callback: callbackName,
+                    data: JSON.stringify(data)
+                });
+                
+                // script 태그로 요청
+                const script = document.createElement('script');
+                script.src = `${url}?${params.toString()}`;
+                script.onerror = function() {
+                    delete window[callbackName];
+                    document.body.removeChild(script);
+                    reject(new Error('JSONP request failed'));
+                };
+                
+                document.body.appendChild(script);
+                
+                // 타임아웃 설정 (30초)
+                setTimeout(() => {
+                    if (window[callbackName]) {
+                        delete window[callbackName];
+                        document.body.removeChild(script);
+                        reject(new Error('Request timeout'));
+                    }
+                }, 30000);
+            });
         }
 
         function displayResult(video, videoUrl) {
